@@ -12,6 +12,7 @@ Author: Elle Miller
 import argparse
 import os
 import sys
+import numpy as np
 
 from isaaclab.app import AppLauncher
 
@@ -101,7 +102,23 @@ def main():
     # Make environment (order: gymnasium Env -> FrameStack -> IsaacLab)
     env_cfg.num_eval_envs = 0 # don't need the visualization of eval envs
     env = make_env(agent_cfg, env_cfg, writer, args_cli)
+    
+    print("\n===== BODY NAMES =====")
 
+    try:
+        robot = env.env.unwrapped.robot
+
+        for i, name in enumerate(robot.body_names):
+            print(i, name)
+
+    except Exception as e:
+        print("Error:", e)
+
+    print("======================\n")
+    print("Joint names and limits:")
+    r = env.env.unwrapped
+    print([r.robot.joint_names[i] for i in r.actuated_dof_indices])
+    print(r.robot_joint_pos_lower_limits, r.robot_joint_pos_upper_limits, r.robot_joint_vel_limits)
     # Setup models
     policy, value, encoder, value_preprocessor = make_models(env, env_cfg, agent_cfg, dtype)
 
@@ -141,6 +158,25 @@ def main():
     mask = torch.Tensor([[1] for _ in range(env.num_envs)]).to(env.device)
 
     states, infos = env.reset(hard=True)
+    print('\ntesttesttesttesttest')
+    print("type(states):", type(states))
+
+    if isinstance(states, dict):
+        print("states keys:", states.keys())
+
+        if "policy" in states:
+            print("policy keys:", states["policy"].keys())
+
+            for k, v in states["policy"].items():
+                try:
+                    print(k, v.shape)
+                except:
+                    print(k, type(v))
+
+    r = env.env.unwrapped
+    idx = r.actuated_dof_indices
+    N_RECORD = 300
+    rec = {'act': [], 'q': [], 'cmd': [], 'tac': []}
 
     # Simulate environment
     while simulation_app.is_running():
@@ -151,6 +187,19 @@ def main():
 
             # Environment stepping
             states, rewards, terminated, truncated, infos = env.step(actions)
+
+            rec["act"].append(actions[0].detach().cpu().numpy().copy())               # normalized action (canonical input)
+            rec["q"].append(r.robot.data.joint_pos[0, idx].detach().cpu().numpy().copy())   # achieved (rad)
+            rec["cmd"].append(r.joint_pos_cmd[0, idx].detach().cpu().numpy().copy())  
+            rec["tac"].append(r.tactile[0].detach().cpu().numpy().copy())                   # binary tactile (24)
+            if len(rec["act"]) >= N_RECORD:
+                fname = f"sim_policy_log_seed{agent_cfg['seed']}.npz"     # was "sim_policy_log.npz"
+                np.savez(fname,
+                         **{k: np.array(v) for k, v in rec.items()},
+                         joints=[r.robot.joint_names[i] for i in idx])
+                print("saved", fname, len(rec["act"]), "steps")
+                break
+    
             # Compute evaluation rewards
             mask_update = 1 - torch.logical_or(terminated, truncated).float()
 

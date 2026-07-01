@@ -146,6 +146,7 @@ class ShadowLiteEnv(RotoEnv):
         if self.tactile_cfg is not None and self.tactile_cfg.get("binary_tactile", True):
             norm = (norm > self.binary_threshold).float()
 
+        #print('TACTILE SHAPE', norm.shape)
         self.last_tactile = self.tactile
         self.tactile = norm
         return norm
